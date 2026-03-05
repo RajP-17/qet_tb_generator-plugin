@@ -17,9 +17,11 @@ from tkinter import filedialog, messagebox
 try:
     from .qetproject import QETProject
     from .terminalblock import TerminalBlock
+    from .preview import PreviewWindow
 except ImportError:
     from qetproject import QETProject
     from terminalblock import TerminalBlock
+    from preview import PreviewWindow
 
 # --- CONSTANTS ---
 VERSION = '2.0.1'
@@ -273,13 +275,14 @@ class App(ctk.CTk):
         self.settings = {}
         self.selected_cells = set() # Set of (terminal_uuid, key)
         self.last_clicked_cell = None # (terminal_uuid, key)
+        self.preview_window = None
 
-        # Initialiser le fichier de debug pour cette session
+        # Initialize debug file for this session
         if DEBUG_MODE:
             try:
                 with open("bridge_debug.txt", "w") as f:
                     f.write(f"--- SESSION START ---\nTime: {time.ctime()}\n")
-            except: pass
+            except Exception: pass
 
         self.title(TITLE)
         # Maximize window on startup
@@ -324,8 +327,12 @@ class App(ctk.CTk):
         self.create_btn = ctk.CTkButton(self.sidebar, text="Create Terminal Blocks", fg_color="green", hover_color="darkgreen", command=self.on_create)
         self.create_btn.pack(pady=10, padx=20)
 
-        self.settings_btn = ctk.CTkButton(self.sidebar, text="Paramètres", command=self.open_settings)
+        self.settings_btn = ctk.CTkButton(self.sidebar, text="Settings", command=self.open_settings)
         self.settings_btn.pack(pady=10, padx=20)
+
+        self.preview_btn = ctk.CTkButton(self.sidebar, text="Live Preview", fg_color="#8B5CF6", hover_color="#7C3AED",
+                                         command=self.open_preview)
+        self.preview_btn.pack(pady=10, padx=20)
 
         self.help_btn = ctk.CTkButton(self.sidebar, text="Help", command=lambda: messagebox.showinfo("Help", HELP))
         self.help_btn.pack(side="bottom", pady=20, padx=20)
@@ -342,16 +349,16 @@ class App(ctk.CTk):
                                      command=lambda: self.apply_auto_fill("0V", "Blue"))
         self.btn_blue.pack(pady=5, padx=20)
 
-        self.btn_noir1 = ctk.CTkButton(self.sidebar, text="Others -> Black", fg_color="#333333", hover_color="#000000", 
+        self.btn_black = ctk.CTkButton(self.sidebar, text="Others -> Black", fg_color="#333333", hover_color="#000000", 
                                       command=lambda: self.apply_auto_fill("OTHERS", "Black"))
-        self.btn_noir1.pack(pady=5, padx=20)
+        self.btn_black.pack(pady=5, padx=20)
 
-        self.btn_reset = ctk.CTkButton(self.sidebar, text="Réinitialiser Conductor", fg_color="#FF4C4C", hover_color="#CC0000", 
+        self.btn_reset = ctk.CTkButton(self.sidebar, text="Reset Conductor", fg_color="#FF4C4C", hover_color="#CC0000",
                                       command=lambda: self.apply_auto_fill("RESET", ""))
         self.btn_reset.pack(pady=5, padx=20)
 
         # Bridge Generation Section
-        self.bridge_label = ctk.CTkLabel(self.sidebar, text="Générer les Ponts:", font=ctk.CTkFont(weight="bold"))
+        self.bridge_label = ctk.CTkLabel(self.sidebar, text="Generate Bridges:", font=ctk.CTkFont(weight="bold"))
         self.bridge_label.pack(pady=(20, 0))
 
         self.bridge_btn_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
@@ -416,18 +423,18 @@ class App(ctk.CTk):
         self.refresh_table()
 
     def refresh_table(self):
-        # Sync Entry values to data BEFORE swapping widget data (prevents data loss)
-        for row in self.rows:
-            row.get_data()
-        
         # Filter terminals
         show_all = "-- ALL --" in self.selected_tbs
-        target_terminals = [t for t in self.qet_project.terminals 
+        target_terminals = [t for t in self.qet_project.terminals
                            if show_all or t['block_name'] in self.selected_tbs]
-        
+
         # Widget pooling: reuse existing rows, create new ones only if needed
         num_needed = len(target_terminals)
         num_existing = len(self.rows)
+
+        # Sync Entry values to data only for visible rows (prevents data loss)
+        for i in range(min(num_needed, num_existing)):
+            self.rows[i].get_data()
         
         # Update existing rows with new data
         for i in range(min(num_needed, num_existing)):
@@ -494,6 +501,10 @@ class App(ctk.CTk):
     def mark_as_edited(self, tb_name):
         if tb_name not in self.edited_terminals:
             self.edited_terminals.append(tb_name)
+        # Debounced preview refresh (500ms delay to avoid lag during rapid edits)
+        if hasattr(self, '_preview_timer'):
+            self.after_cancel(self._preview_timer)
+        self._preview_timer = self.after(500, self.refresh_preview)
 
     def sort_by_id(self):
         # Sort terminals within each block and re-assign physical positions
@@ -635,7 +646,7 @@ class App(ctk.CTk):
     def handle_global_paste(self, event=None):
         try:
             text = self.clipboard_get().strip()
-        except:
+        except Exception:
             return
 
         if not text: return
@@ -795,7 +806,7 @@ class App(ctk.CTk):
                 try:
                     with open("debug_drawing.txt", "w") as f: f.write("")
                     with open("bridge_debug.txt", "w") as f: f.write("")
-                except: pass
+                except Exception: pass
                 with open("bridge_debug.txt", "a") as f:
                     f.write(f"\n--- BATCH CREATION START ---\nTime: {time.ctime()}\n")
 
@@ -853,7 +864,7 @@ class App(ctk.CTk):
         splitted = len([1 for x in filtered_data if x['block_name'] == name]) > split_val
         
         head_text = "{}({})".format(name, slice_num) if splitted else name
-        a_block = TerminalBlock(head_text, current_tb, self.settings)
+        a_block = TerminalBlock(head_text, current_tb, self.settings, debug_mode=DEBUG_MODE)
         self.qet_project.insert_tb(head_text, a_block.drawTerminalBlock())
 
     def backup_diagram(self):
@@ -977,7 +988,7 @@ class App(ctk.CTk):
             try:
                 with open(config_path, 'r') as f:
                     self.settings = json.load(f)
-            except:
+            except Exception:
                 self.set_defaults()
         else:
             self.set_defaults()
@@ -995,6 +1006,19 @@ class App(ctk.CTk):
         config_path = os.path.join(os.path.expanduser("~"), CONFIG_FILE)
         with open(config_path, 'w') as f:
             json.dump(self.settings, f)
+
+    def open_preview(self):
+        """Open or focus the live preview window."""
+        if self.preview_window is not None and self.preview_window.winfo_exists():
+            self.preview_window.focus()
+            self.preview_window.render_preview()
+        else:
+            self.preview_window = PreviewWindow(self, self)
+
+    def refresh_preview(self):
+        """Refresh the preview window if it's open."""
+        if self.preview_window is not None and self.preview_window.winfo_exists():
+            self.preview_window.render_preview()
 
 def get_qet_file():
     root = tk.Tk()

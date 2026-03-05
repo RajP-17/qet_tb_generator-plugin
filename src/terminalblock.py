@@ -46,37 +46,40 @@ class TerminalBlock:
     Y_OFFSET_BASE_TEXT = 22  # vertical offset between terminal and letters
     X_OFFSET_CABLE_TEXT = 4  # horizontal offset between cable and its name
 
-    def __init__(self, tb_block_name, collec, settings={}):
+    def __init__(self, tb_block_name, collec, settings=None, debug_mode=False):
         """initializer.
         @param string tb_block_name: block_name
         @param collec: collection of terminals. Only the terminals of the
             segment 'tb_id' are accepted.
         @param settings: dict with the settings
+        @param debug_mode: enable debug logging to debug_drawing.txt
         """
         self.tb_block_name = tb_block_name
         self.terminals = collec
         self.num_terminals = len(self.terminals)
         self.tb_id = self.terminals[0]['block_name']
-        
+        self.debug_mode = debug_mode
+
         # set settings if defined or defaults
-        self.HEAD_HEIGHT = [int( settings['-CFG_A-'] ), 120][settings=={}]
-        self.HEAD_WIDTH = [int( settings['-CFG_B-'] ), 44][settings=={}]
-        self.UNION_HEIGHT = [int( settings['-CFG_C-'] ), 70][settings=={}]
-        self.UNION_WIDTH = [int( settings['-CFG_D-'] ), 6][settings=={}]
-        self.TERMINAL_HEIGHT = [int( settings['-CFG_E-'] ), 160][settings=={}]
-        self.TERMINAL_WIDTH = [int( settings['-CFG_F-'] ), 20][settings=={}]
-        self.CONDUCTOR_LENGTH = [int( settings['-CFG_G-'] ), 70][settings=={}]
-        self.HOSE_CONDUCTOR_START = [int( settings['-CFG_H-'] ), 70][settings=={}]
-        self.HOSE_LENGTH = [int( settings['-CFG_I-'] ), 80][settings=={}]
-        self.HOSE_CONDUCTOR_END = [int( settings['-CFG_J-'] ), 70][settings=={}]
+        s = settings or {}
+        self.HEAD_HEIGHT = int(s.get('-CFG_A-', 120))
+        self.HEAD_WIDTH = int(s.get('-CFG_B-', 44))
+        self.UNION_HEIGHT = int(s.get('-CFG_C-', 70))
+        self.UNION_WIDTH = int(s.get('-CFG_D-', 6))
+        self.TERMINAL_HEIGHT = int(s.get('-CFG_E-', 160))
+        self.TERMINAL_WIDTH = int(s.get('-CFG_F-', 20))
+        self.CONDUCTOR_LENGTH = int(s.get('-CFG_G-', 70))
+        self.HOSE_CONDUCTOR_START = int(s.get('-CFG_H-', 70))
+        self.HOSE_LENGTH = int(s.get('-CFG_I-', 80))
+        self.HOSE_CONDUCTOR_END = int(s.get('-CFG_J-', 70))
 
-        self.HEAD_FONT = [int( settings['-CFG_HEAD_FONT-'] ), 13][settings=={}]
-        self.TERMINAL_FONT = [int( settings['-CFG_TERMINAL_FONT-'] ), 9][settings=={}]
-        self.XREF_FONT = [int( settings['-CFG_XREF_FONT-'] ), 6][settings=={}]
-        self.CONDUCTOR_FONT = [int( settings['-CFG_CONDUCTOR_FONT-'] ), 6][settings=={}]
+        self.HEAD_FONT = int(s.get('-CFG_HEAD_FONT-', 13))
+        self.TERMINAL_FONT = int(s.get('-CFG_TERMINAL_FONT-', 9))
+        self.XREF_FONT = int(s.get('-CFG_XREF_FONT-', 6))
+        self.CONDUCTOR_FONT = int(s.get('-CFG_CONDUCTOR_FONT-', 6))
 
-        self.SPLIT_SIZE = [int( settings['-CFG_SPLIT-'] ), 30][settings=={}]
-        self.TERMINAL_STEP = [int( settings.get('-CFG_K-', 20) ), 20][settings=={}]
+        self.SPLIT_SIZE = int(s.get('-CFG_SPLIT-', 30))
+        self.TERMINAL_STEP = int(s.get('-CFG_K-', 20))
 
 
 
@@ -90,44 +93,6 @@ class TerminalBlock:
             return int(foo)
         else:
             return 9999
-
-
-    def _get_empty_terminal(self, terminal_name=''):
-        """Returns a list corresponding a new empty terminalself.
-
-        The new terminal haves the same teminal_block_name.
-
-        @param terminal_name: name/number for the terminal block
-        @return: valid list format for a terminal.
-        """
-        # [element_uuid, terminal_block_name, terminal_name/number, terminal_xref,
-        # NORTH cable id side 1, N.cable id side 2, N.cable num, N. cable destination xref,
-        # SOUTH cable id side 1, S.cable id side 2, S.cable num, S. cable destination xref]
-        return ['', self.tb_id, str(terminal_name), '', \
-                '', '', self.config['reservation_label'], '', \
-                '', '', self.config['reservation_label'], '']
-
-
-    def _generate_reservation_numbers(self):
-        """Creates new terminals ID for gaps if exist. # TODO: not used?
-
-        Only check gaps for numerical ID's (not for +1, -0,...).
-        The list of terminal_numbers comes from a unique block terminal,
-        i.e. X1, X12,...
-
-        NOTE: Modify self.terminals
-        @return list with gaps filled and sorted.
-        """
-
-        only_numbers = [int(x[self._IDX_TERM_NAME_])
-            for x in self.terminals if x[self._IDX_TERM_NAME_].isdigit()]
-        only_numbers.sort()
-        log.debug("<drawTerminalBlock> Reservation - {}".format(only_numbers))
-
-        if only_numbers:  # if the are digits in terminals numeration
-            for i in range(1, int(only_numbers[-1])):
-                if i not in only_numbers:
-                    self.terminals.append( self._get_empty_terminal(i))
 
 
     def drawTerminalBlock(self):
@@ -198,7 +163,7 @@ class TerminalBlock:
             x_term_center = cursor + (self.TERMINAL_WIDTH / 2)
             
             try: etage = int(trmnl.get('etage', '1'))
-            except: etage = 1
+            except (ValueError, TypeError): etage = 1
             
             # Centered height reduction: height is E - (n-1)*K
             h_curr = self.TERMINAL_HEIGHT - (etage - 1) * self.TERMINAL_STEP
@@ -242,12 +207,11 @@ class TerminalBlock:
             self._qet_term(description, x=cursor, y=0, orientation='n')
 
             # South conductors: start at variable bottom of box
-            # DEBUG LOGGING (detailed)
-            try:
-                with open("debug_drawing.txt", "a") as f:
-                    # Log EVERYTHING to see the actual content of the dictionary
-                    f.write(f"DRAWING: name={trmnl.get('terminal_name')} -> FULL_DATA: {str(trmnl)}\n")
-            except: pass
+            if self.debug_mode:
+                try:
+                    with open("debug_drawing.txt", "a") as f:
+                        f.write(f"DRAWING: name={trmnl.get('terminal_name')} -> FULL_DATA: {str(trmnl)}\n")
+                except Exception: pass
 
             # Robust key detection
             # Sometimes keys are 'hose', sometimes 'conductor_name' (legacy)
@@ -257,11 +221,11 @@ class TerminalBlock:
             if hose_name.lower() in ['none', 'nan', 'null', '']: 
                 hose_name = ''
             
-            # TEMP DEBUG: log what branch each terminal takes
-            try:
-                with open("debug_drawing.txt", "a") as f:
-                    f.write(f"  SOUTH: name={trmnl.get('terminal_name')} hose='{hose_name}' cond='{cond_num}' cable='{trmnl.get('cable','')}' etage={trmnl.get('etage','1')} y_bottom_curr={y_bottom_curr} y_max_bottom={y_max_bottom}\n")
-            except: pass
+            if self.debug_mode:
+                try:
+                    with open("debug_drawing.txt", "a") as f:
+                        f.write(f"  SOUTH: name={trmnl.get('terminal_name')} hose='{hose_name}' cond='{cond_num}' cable='{trmnl.get('cable','')}' etage={trmnl.get('etage','1')} y_bottom_curr={y_bottom_curr} y_max_bottom={y_max_bottom}\n")
+                except Exception: pass
             
             if hose_name != '': 
                 y1_south = y_bottom_curr
@@ -296,10 +260,11 @@ class TerminalBlock:
                     y2=y1_hose + 10 + 2)
                 self._qet_term(description, cursor, y2_hose, 's')
                 
-                try:
-                    with open("debug_drawing.txt", "a") as f:
-                        f.write(f"    -> HOSE BRANCH: line({x_term_center}, {y1_south} -> {y2_south}), cable_label='{trmnl.get('cable','')}', cond='{cond_num}', hose_line({x_term_center}, {y1_hose} -> {y2_hose})\n")
-                except: pass
+                if self.debug_mode:
+                    try:
+                        with open("debug_drawing.txt", "a") as f:
+                            f.write(f"    -> HOSE BRANCH: line({x_term_center}, {y1_south} -> {y2_south}), cable_label='{trmnl.get('cable','')}', cond='{cond_num}', hose_line({x_term_center}, {y1_hose} -> {y2_hose})\n")
+                    except Exception: pass
             else: 
                 y1_indiv = y_bottom_curr
                 y2_indiv = y_max_bottom + self.CONDUCTOR_LENGTH
@@ -309,10 +274,11 @@ class TerminalBlock:
                     text=trmnl['cable'])
                 self._qet_term(description, x=cursor, y=y2_indiv, orientation='s')
                 
-                try:
-                    with open("debug_drawing.txt", "a") as f:
-                        f.write(f"    -> SIMPLE BRANCH: line({x_term_center}, {y1_indiv} -> {y2_indiv}), cable='{trmnl['cable']}'\n")
-                except: pass
+                if self.debug_mode:
+                    try:
+                        with open("debug_drawing.txt", "a") as f:
+                            f.write(f"    -> SIMPLE BRANCH: line({x_term_center}, {y1_indiv} -> {y2_indiv}), cable='{trmnl['cable']}'\n")
+                    except Exception: pass
 
             # Hose detection logic (use fixed Y for horizontal lines)
             y1_h = y_max_bottom + self.HOSE_CONDUCTOR_START
@@ -408,7 +374,7 @@ class TerminalBlock:
             rect_y = y - 30 
             self._rect(father, x=cursor, y=rect_y, width=self.TERMINAL_WIDTH, height=10, style=style)
 
-        if typ in ['ground', 'terre']:
+        if typ == 'ground':
             logo_width = 15
             y1 = y - 10
             y2 = y
@@ -421,7 +387,7 @@ class TerminalBlock:
             self._line(father, x1+4, y2+4, x2-4, y2+4) # Small
             self._line(father, x1+6, y2+6, x2-6, y2+6) # Tip
         
-        elif typ in ['fuse', 'fusible']:
+        elif typ == 'fuse':
             logo_height = TerminalBlock.LOGO_HEIGHT
             x1 = x - (self.TERMINAL_WIDTH / 2) + 2
             x2 = x + (self.TERMINAL_WIDTH / 2) - 2
@@ -591,4 +557,3 @@ class TerminalBlock:
         label_text = etree.SubElement(label, 'text')
         label_text.text = text
         return label
-        return label          

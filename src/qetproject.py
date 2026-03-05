@@ -122,45 +122,46 @@ class QETProject:
             self.original_logo_section = ''
         tmpf = tempfile.NamedTemporaryFile(mode='w', encoding='utf8', delete=False)
         tmpf.write(xml)
+        tmpf.close()
         log.info ("Generate temp file {}".format(tmpf.name))
 
-        # starting...
-        self._qet_tree = etree.parse(tmpf.name)
-        self.qet_project_file = project_file
-        self.qet_project = self._qet_tree.getroot()
-        
-        # determine xref format to use or default
-        self.folio_reference_type = self.qet_project.find('.//newdiagrams'). \
-                find('report').attrib['label']
+        try:
+            # starting...
+            self._qet_tree = etree.parse(tmpf.name)
+            self.qet_project_file = project_file
+            self.qet_project = self._qet_tree.getroot()
 
-        # XML version
-        self.xml_version = self.qet_project.attrib['version']
+            # determine xref format to use or default
+            self.folio_reference_type = self.qet_project.find('.//newdiagrams'). \
+                    find('report').attrib['label']
 
-        # pageOffset for folio numbers. 
-        # From versión 0.8 ot Qelectrotech, this attribute doesn't exist.
-        # folioSheetQuantity ==> offset table of contents
-        if 'folioSheetQuantity' in self.qet_project.attrib:
-            self.pageOffset = int (self.qet_project.attrib['folioSheetQuantity']) 
-        else:
-            log.info ("Atribute 'folioSheetQuantity' doesn't exist. Assuming 0")
-            self.pageOffset = 0
-            
+            # XML version
+            self.xml_version = self.qet_project.attrib['version']
 
-        # general project info
-        self._totalPages = len (self.qet_project.findall('.//diagram')) + \
-                self.pageOffset
+            # pageOffset for folio numbers.
+            # From version 0.8 of Qelectrotech, this attribute doesn't exist.
+            # folioSheetQuantity ==> offset table of contents
+            if 'folioSheetQuantity' in self.qet_project.attrib:
+                self.pageOffset = int (self.qet_project.attrib['folioSheetQuantity'])
+            else:
+                log.info ("Attribute 'folioSheetQuantity' doesn't exist. Assuming 0")
+                self.pageOffset = 0
 
-        # elements type of terminal (use set for O(1) lookup)
-        self._terminalElements = self._getListOfElementsByType( 'terminal' )
-        self._terminalElementsSet = set(self._terminalElements)
 
-        # finds all terminals. A list of dicts
-        self._set_used_terminals()
+            # general project info
+            self._totalPages = len (self.qet_project.findall('.//diagram')) + \
+                    self.pageOffset
 
-        #deleting temp file
-        tmpf.close()
-        os.unlink(tmpf.name)
-        log.info ("Deleted temp file {}".format(tmpf.name))
+            # elements type of terminal (use set for O(1) lookup)
+            self._terminalElements = self._getListOfElementsByType( 'terminal' )
+            self._terminalElementsSet = set(self._terminalElements)
+
+            # finds all terminals. A list of dicts
+            self._set_used_terminals()
+        finally:
+            # Always clean up temp file
+            os.unlink(tmpf.name)
+            log.info ("Deleted temp file {}".format(tmpf.name))
 
 
 
@@ -480,7 +481,7 @@ class QETProject:
                         terminalId2 = terminals[1].attrib['id']
                         cableNum2 = self._getCableNum(diagram, terminalId2, element.attrib['uuid'], conductor_index)
                         if cableNum == '': cableNum = cableNum2
-                    except:
+                    except (IndexError, KeyError):
                         pass
                     el['uuid'] = element.attrib['uuid']
                     el['block_name'] = terminalName.split(':')[0]
@@ -489,8 +490,8 @@ class QETProject:
                     el['cable'] = cableNum             
                     if meta_data['terminal_pos']=='':  #  convert to integer for more initial intelligent sorting
                         try:
-                            el['terminal_pos'] = int(el['terminal_name']) 
-                        except:
+                            el['terminal_pos'] = int(el['terminal_name'])
+                        except (ValueError, TypeError):
                             el['terminal_pos'] = 1
                     else:
                         el['terminal_pos'] = int(meta_data['terminal_pos'])
